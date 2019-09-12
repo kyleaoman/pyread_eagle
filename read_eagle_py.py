@@ -1,5 +1,6 @@
 import h5py
 import numpy as np
+from itertools import product
 
 
 class EagleSnapshotClosedException(Exception):
@@ -197,28 +198,124 @@ class EagleSnapshot(object):
                               for i in range(6)]
         self.first_in_cell = [[None for j in range(self.numfiles)]
                               for i in range(6)]
-        # ***CONTINUE*** from line 429 of read_eagle.c
+
+        self.num_datasets = [0 for i in range(6)]
+        self.dataset_name = [None for i in range(6)]
+
+        for itype in range(6):
+            if self.numpart_total[itype] > 0:
+                ifile = 0
+                while self.num_keys_in_file[itype][ifile] == 0:
+                    ifile += 1
+                filename = '{:s}.{:d}.hdf5'.format(self.basename, ifile)
+                with h5py.File(filename, 'r') as f:
+                    try:
+                        g = f['/PartType{:d}'.format(itype)]
+                    except KeyError:
+                        self.num_datasets[itype] = 0
+                    else:
+                        self._get_dataset_list(g, itype, "")
+                        self.dataset_name[itype] = [None for i in range(self.num_datasets[itype])]
+                        self.num_datasets[itype] = 0
+                        self._get_dataset_list(g, itype, "")
+                        # two calls to _get_dataset_list here, I think the first counts and
+                        # the second actually stores the names, can condense this in python
+
+        self.split_rank = -1
+        self.split_size = -1
+
+        return
+
+    def _get_dataset_list(self, grp, itype, prefix):
+        all_objs = list()
+        if prefix:
+            grp[prefix].visit(all_objs.append)
+        else:
+            grp.visit(all_objs.append)
+        all_dsets = [obj for obj in all_objs if isinstance(obj, h5py.Dataset)]
+        itype_dsets = [ds for ds in all_dsets if 'PartType{:d}'.format(itype) in ds]
+        self.num_datasets[itype] = len(itype_dsets)
+        self.dataset_name[itype] = itype_dsets
+        return
 
     def _get_dataset_count(self, itype):
-        # first arg was self.snap, no need to pass
-        pass
+        if (itype > 5) or (itype < 0):
+            raise ValueError("Particle type itype is outside range 0-5!")
+        if self.numpart_total[itype] == 0:
+            return 0
+        return self.num_datasets[itype]
 
     def _get_dataset_name(self, itype, iset):
-        # first arg was self.snap, no need to pass
-        pass
+        if (itype < 0) or (itype > 5):
+            raise ValueError("Particle type itype is outside range 0-5!")
+        if (iset < 0) or iset >= self.num_datasets[itype]:
+            raise ValueError("Dataset index is out of range!")
+        # this function turns out to be pointless in python, refactor aggressively
+        # to just get the names and store them during init (or maybe not even that)
 
     def _select_region(self, xmin, xmax, ymin, ymax, zmin, zmax):
-        # first arg was self.snap, no need to pass
-        pass
+        ixmin = int(np.floor(xmin / self.boxsize * self.ncell))
+        ixmax = int(np.floor(xmax / self.boxsize * self.ncell))
+        iymin = int(np.floor(ymin / self.boxsize * self.ncell))
+        iymax = int(np.floor(ymax / self.boxsize * self.ncell))
+        izmin = int(np.floor(zmin / self.boxsize * self.ncell))
+        izmax = int(np.floor(zmax / self.boxsize * self.ncell))
+        if self.verbose:
+            print('select_region() called')
+        n = 0
+        for ix in range(ixmin, ixmax + 1):
+            iix = ix
+            while iix < 0:
+                iix += self.ncell
+            while iix >= self.ncell:
+                iix -= self.ncell
+            for iy in range(iymin, iymax + 1):
+                iiy = iy
+                while iiy < 0:
+                    iiy += self.ncell
+                while iiy >= self.ncell:
+                    iiy -= self.ncell
+                for iz in range(izmin, izmax + 1):
+                    iiz = iz
+                    while iiz < 0:
+                        iiz += self.ncell
+                    while iiz >= self.ncell:
+                        iiz -= self.ncell
+                    self.hashmap[peano_hilbert_key(iix, iiy, iiz, self.hashbits)] = 1
+                    n += 1
+        if self.verbose:
+            print("  - Selected {:d} cells of {:d}".format(n, self.nhash))
+        return
 
     def _close_snapshot(self):
-        # first arg was self.snap, no need to pass
+        # revise once init is finalized
         pass
 
     def _select_rotated_region(self, cx, cy, cz, xx, xy, xz, yx, yy, yz,
                                zx, zy, zz, lx, ly, lz):
-        # first arg was self.snap, no need to pass
-        pass
+        diagonal = np.sqrt(3) * self.boxsize / self.ncell
+        for ix, iy, iz in product(range(self.ncell), range(self.ncell), range(self.ncell)):
+            cell_centre = [
+                self.boxsize / self.ncell * (ix + .5) - cx,
+                self.boxsize / self.ncell * (iy + .5) - cy,
+                self.boxsize / self.ncell * (iz + .5) - cz
+            ]
+            for i in range(3):
+                while cell_centre[i] > .5 * self.boxsize:
+                    cell_centre[i] -= self.boxsize
+                while cell_centre[i] < .5 * self.boxsize:
+                    cell_centre[i] += self.boxsize
+            pos = [
+                cell_centre[0] * xx + cell_centre[1] * xy + cell_centre[2] * xz,
+                cell_centre[0] * yx + cell_centre[1] * yy + cell_centre[2] * yz,
+                cell_centre[0] * zx + cell_centre[1] * zy + cell_centre[2] * zz
+            ]
+            if (pos[0] > -.5 * lx - .5 * diagonal) and (pos[0] < .5 * lx + .5 * diagonal) \
+               and (pos[1] > -.5 * ly - .5 * diagonal) and (pos[1] < .5 * ly + .5 * diagonal) \
+               and (pos[2] > -.5 * lz - .5 * diagonal) and (pos[2] < .5 * lz + .5 * diagonal):
+                self.hashmap[peano_hilbert_key(ix, iy, iz, self.hashbits)] = 1
+        return
+            
 
     def _select_grid_cells(self, ixmin, ixmax, iymin, iymax, izmin, izmax):
         # first arg was self.snap, no need to pass
