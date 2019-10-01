@@ -1,9 +1,10 @@
 import h5py
 import numpy as np
 from itertools import product
+from functools import wraps
 
 
-quadrants = np.array([
+_quadrants = np.array([
   # rotx=0, roty=0-3
   [[[0, 7], [1, 6]], [[3, 4], [2, 5]]],
   [[[7, 4], [6, 5]], [[0, 3], [1, 2]]],
@@ -36,24 +37,45 @@ quadrants = np.array([
   [[[5, 2], [6, 1]], [[4, 3], [7, 0]]]
 ])
 
-rotxmap_table = np.array([4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0, 1, 2, 3, 17, 18, 19, 16, 23, 20, 21, 22])
-rotymap_table = np.array([1, 2, 3, 0, 16, 17, 18, 19, 11, 8, 9, 10, 22, 23, 20, 21, 14, 15, 12, 13, 4, 5, 6, 7])
+_rotxmap_table = np.array([4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0, 1, 2, 3, 17, 18, 19, 16, 23, 20, 21, 22])
+_rotymap_table = np.array([1, 2, 3, 0, 16, 17, 18, 19, 11, 8, 9, 10, 22, 23, 20, 21, 14, 15, 12, 13, 4, 5, 6, 7])
 
-rotx_table = np.array([3, 0, 0, 2, 2, 0, 0, 1])
-roty_table = np.array([0, 1, 1, 2, 2, 3, 3, 0])
+_rotx_table = np.array([3, 0, 0, 2, 2, 0, 0, 1])
+_roty_table = np.array([0, 1, 1, 2, 2, 3, 3, 0])
 
-sense_table = [-1, -1, -1, +1, +1, -1, -1, -1]
+_sense_table = [-1, -1, -1, +1, +1, -1, -1, -1]
+
+
+def _get_dataset_list(grp, prefix=""):
+    all_objs = list()
+    if prefix:
+        grp[prefix].visit(all_objs.append)
+    else:
+        grp.visit(all_objs.append)
+    all_dsets = ['/' + obj for obj in all_objs if isinstance(grp[obj], h5py.Dataset)]
+    return all_dsets
 
 
 class EagleSnapshotClosedException(Exception):
     pass
 
 
+def check_open(method):
+    @wraps(method)
+    def _check_open(self, *method_args, **method_kwargs):
+        if self.isclosed:
+            raise EagleSnapshotClosedException
+        else:
+            return method(self, *method_args, **method_kwargs)
+    return _check_open
+
+
 class EagleSnapshot(object):
     """Class to represent an open Eagle snapshot"""
 
     def __init__(self, fname, verbose=False):
-        """Open a new snapshot"""
+        """Open a new snapshot"""  # doc'd
+        self.isclosed = False
         self.fname = fname
         self.verbose = verbose
         if self.verbose:
@@ -126,8 +148,9 @@ class EagleSnapshot(object):
         self.close()
         return
 
+    @check_open
     def select_region(self, xmin, xmax, ymin, ymax, zmin, zmax):
-        """Select a region to read in"""
+        """Select a region to read in"""  # doc'd
         if self.verbose:
             print('select_region() called')
         ixmin = int(np.floor(xmin / self.boxsize * self.ncell))
@@ -138,9 +161,9 @@ class EagleSnapshot(object):
         izmax = int(np.floor(zmax / self.boxsize * self.ncell))
         return self.select_grid_cells(ixmin, ixmax, iymin, iymax, izmin, izmax)
 
-
+    @check_open
     def select_grid_cells(self, ixmin, ixmax, iymin, iymax, izmin, izmax):
-        """Select hash grid cells to read in"""
+        """Select hash grid cells to read in"""  # doc'd
         if self.verbose:
             print('select_grid_cells() called')
         n = 0
@@ -160,8 +183,9 @@ class EagleSnapshot(object):
             print("  - Selected {:d} cells of {:d}".format(n, self.nhash))
         return
 
+    @check_open
     def select_rotated_region(self, centre, xvec, yvec, zvec, length):
-        """Select a non axis aligned region to read in"""
+        """Select a non axis aligned region to read in"""  # doc'd
         diagonal = np.sqrt(3) * self.boxsize / self.ncell
         for ixyz in product(range(self.ncell), range(self.ncell), range(self.ncell)):
             ixyz = np.array(ixyz)
@@ -180,13 +204,15 @@ class EagleSnapshot(object):
                 self.hashmap[self._peano_hilbert_key(*tuple(ixyz))] = 1
         return
 
+    @check_open
     def set_sampling_rate(self, rate):
-        """Set the sampling rate for subsequent reads"""
+        """Set the sampling rate for subsequent reads"""  # doc'd
         self.sampling_rate = rate
         return
 
+    @check_open
     def clear_selection(self):
-        """Clear the current selection"""
+        """Clear the current selection"""  # doc'd
         if self.verbose:
             print('clear_selection() called')
         self.hashmap = np.zeros(self.nhash)
@@ -195,12 +221,14 @@ class EagleSnapshot(object):
         self.split_rank = -1
         return
 
+    @check_open
     def count_particles(self, itype):
-        """Return the number of particles in the selected region"""
+        """Return the number of particles in the selected region"""  # doc'd
         return self.get_particle_locations(itype, _count=True)
 
+    @check_open
     def get_particle_locations(self, itype, _count=False):
-        """Return the locations of particles in the selected region"""
+        """Return the locations of particles in the selected region"""  # doc'd
         nmax = 0
         file_index = []
         file_offset = []
@@ -244,51 +272,14 @@ class EagleSnapshot(object):
         else:
             return np.concatenate(file_index), np.concatenate(file_offset)
 
+    @check_open
     def read_dataset(self, itype, name):
-        """Read a dataset and return it as a Numpy array"""
+        """Read a dataset and return it as a Numpy array"""  # doc'd
         return self.read_extra_dataset(itype, name, None)
 
+    @check_open
     def read_extra_dataset(self, itype, name, basename):
-        """Read a dataset from an auxiliary file and return it as a np.array"""
-        return self._read_extra_dataset(itype, name, basename)
-
-    def datasets(self, itype):
-        """Return a list of datasets for the specified particle type"""
-        if itype < 0 or itype > 5:
-            raise ValueError("Particle type index is out of range")
-        return self.dataset_names[itype]
-
-    def split_selection(self, ThisTask, NTask):
-        """Split the selected region(s) between processors"""
-        self._split_selection(ThisTask, NTask)
-
-    def close(self):
-        """Close the snapshot and deallocate associated memory"""
-        # should probably delete the arrays here?
-        return
-
-    def _collect_dataset_names(self):
-        self.num_datasets = [0 for i in range(6)]
-        self.dataset_names = [None for i in range(6)]
-        #locate a file which actually has data for given particle type
-        for itype in range(6):
-            if self.numpart_total[itype] > 0:
-                ifile = 0
-                while self.num_keys_in_file[itype][ifile] == 0:
-                    ifile += 1
-                filename = '{:s}.{:d}.hdf5'.format(self.basename, ifile)
-                # open this file and record dataset names
-                with h5py.File(filename, 'r') as f:
-                    try:
-                        g = f['/PartType{:d}'.format(itype)]
-                    except KeyError:
-                        self.num_datasets[itype] = 0
-                    else:
-                        self.dataset_names[itype] = _get_dataset_list(g)
-                        self.num_datasets[itype] = len(self.dataset_names[itype])
-        return  
-
-    def _read_extra_dataset(self, itype, name, basename):
+        """Read a dataset from an auxiliary file and return it as a np.array"""  # doc'd
         if (itype < 0) or (itype > 5):
             raise ValueError('Particle type itype is outside range 0-5!')
         if self.verbose:
@@ -348,6 +339,70 @@ class EagleSnapshot(object):
                             pass
         return np.concatenate(retval)
 
+
+    @check_open
+    def datasets(self, itype):
+        """Return a list of datasets for the specified particle type"""  # doc'd
+        if itype < 0 or itype > 5:
+            raise ValueError("Particle type index is out of range")
+        return self.dataset_names[itype]
+
+    @check_open
+    def split_selection(self, ThisTask, NTask):
+        """Split the selected region(s) between processors"""  # doc'd
+        self._split_selection(ThisTask, NTask)
+
+    @check_open
+    def close(self):
+        """Close the snapshot and deallocate associated memory"""  # doc'd
+        del self.fname
+        del self.verbose
+        del self.sampling_rate
+        del self.boxsize
+        del self.numfiles
+        del self.hashbits
+        del self.ncell
+        del self.nhash
+        del self.numpart_total
+        del self.hashmap
+        del self.basename
+        del self.first_key_in_file
+        del self.last_key_in_file
+        del self.num_keys_in_file
+        del self.num_part_in_file
+        del self.part_per_cell
+        del self.first_in_cell
+        del self.num_datasets
+        del self.dataset_names
+        del self.split_rank
+        del self.split_size
+        self.isclosed = True
+
+        return
+
+    @check_open
+    def _collect_dataset_names(self):
+        self.num_datasets = [0 for i in range(6)]
+        self.dataset_names = [None for i in range(6)]
+        #locate a file which actually has data for given particle type
+        for itype in range(6):
+            if self.numpart_total[itype] > 0:
+                ifile = 0
+                while self.num_keys_in_file[itype][ifile] == 0:
+                    ifile += 1
+                filename = '{:s}.{:d}.hdf5'.format(self.basename, ifile)
+                # open this file and record dataset names
+                with h5py.File(filename, 'r') as f:
+                    try:
+                        g = f['/PartType{:d}'.format(itype)]
+                    except KeyError:
+                        self.num_datasets[itype] = 0
+                    else:
+                        self.dataset_names[itype] = _get_dataset_list(g)
+                        self.num_datasets[itype] = len(self.dataset_names[itype])
+        return  
+
+    @check_open
     def _split_selection(self, ThisTask, NTask):
         if (ThisTask < 0) or (Ntask < 1) or (ThisTask >= Ntask):
             raise ValueError('Invalid paramters')
@@ -380,6 +435,7 @@ class EagleSnapshot(object):
         self.split_rank = ThisTask
         return
 
+    @check_open
     def _load_hash_table(self, itype, ifile):
         if self.verbose:
             print('  - Reading hash table for file {:d} particle type {:d}'.format(ifile, itype))
@@ -393,6 +449,7 @@ class EagleSnapshot(object):
                 ]
         return
 
+    @check_open
     def _peano_hilbert_key(self, x, y, z):
         mask = 1 << (self.hashbits - 1)
         key = 0
@@ -404,32 +461,22 @@ class EagleSnapshot(object):
             bity = np.where(y & mask, 1, 0)
             bitz = np.where(z & mask, 1, 0)
 
-            quad = quadrants[rotation][bitx][bity][bitz]
+            quad = _quadrants[rotation][bitx][bity][bitz]
 
             key <<= 3
             key += quad if sense == 1 else 7 - quad
 
-            rotx = rotx_table[quad]
-            roty = roty_table[quad]
-            sense *= sense_table[quad]
+            rotx = _rotx_table[quad]
+            roty = _roty_table[quad]
+            sense *= _sense_table[quad]
 
             while rotx > 0:
-                rotation = rotxmap_table[rotation]
+                rotation = _rotxmap_table[rotation]
                 rotx -= 1
             while roty > 0:
-                rotation = rotymap_table[rotation]
+                rotation = _rotymap_table[rotation]
                 roty -= 1
 
             mask >>= 1
 
         return key
-
-
-def _get_dataset_list(grp, prefix=""):
-    all_objs = list()
-    if prefix:
-        grp[prefix].visit(all_objs.append)
-    else:
-        grp.visit(all_objs.append)
-    all_dsets = ['/' + obj for obj in all_objs if isinstance(grp[obj], h5py.Dataset)]
-    return all_dsets
