@@ -229,6 +229,7 @@ class EagleSnapshot(object):
     @check_open
     def get_particle_locations(self, itype, _count=False):
         """Return the locations of particles in the selected region"""  # doc'd
+        # revise this function to be similar to read_extra_dataset to speed up
         nmax = 0
         file_index = []
         file_offset = []
@@ -289,52 +290,41 @@ class EagleSnapshot(object):
         name = "PartType{:d}/{:s}".format(itype, name)
         retval = []
         np.random.seed(1)
-        n_to_read = 0
-        end_key = -1
         for ifile in range(self.numfiles):
             if self.num_keys_in_file[itype][ifile] > 0:
                 fname = '{:s}.{:d}.hdf5'.format(basename if basename else self.basename, ifile)
                 with h5py.File(fname, 'r') as f:
                     if self.verbose:
                         print('  - Opened file {:d}'.format(ifile))
-                    # boolean masks apparently may be slow in h5py? need to use slices?
-                    s = np.zeros(self.num_part_in_file[itype][ifile], dtype=np.bool)
-                    for key in range(self.first_key_in_file[itype][ifile],
-                                     self.last_key_in_file[itype][ifile]):
-                        if key <= end_key:
-                            continue
-                        if self.hashmap[key]:
-                            # this key is in the current file, so make sure the hash
-                            # table for the file is in memory
-                            if self.part_per_cell[itype][ifile] is None:
-                                self._load_hash_table(itype, ifile)
-                            # check if there's a series of consecutive selected cells we can read
-                            end_key = key
-                            while end_key <= self.last_key_in_file[itype][ifile] and self.hashmap[end_key]:
-                                end_key += 1
-                            end_key -= 1
-                            try:
-                                d = f[name]
-                            except KeyError:
-                                raise KeyError('Unable to open dataset: {:s}'.format(name))
-                            nread_file = 0
-                            count = 0
-                            for this_key in range(key, end_key + 1):
-                                count += self.part_per_cell[itype][ifile][
-                                    this_key - self.first_key_in_file[itype][ifile]]
-                            start = int(self.first_in_cell[itype][ifile][
-                                    key - self.first_key_in_file[itype][ifile]])
-                            rank = d.ndim
-                            nread_file += count
-                            s[start:start + count] = True
-                            key = end_key
-                    if nread_file > 0:
-                        if not rank in (1, 2):
-                            raise RuntimeError('Can only read 1D or 2D datasets!')
+                    starts = []
+                    counts = []
+                    try:
+                        d = f[name]
+                    except KeyError:
+                        raise KeyError('Unable to open dataset: {:s}'.format(name))
+                    if not d.ndim in (1, 2):
+                        raise RuntimeError('Can only read 1D or 2D datasets!')
+                    cell_mask = self.hashmap[self.first_key_in_file[itype][ifile]:
+                                             self.last_key_in_file[itype][ifile] + 1]
+                    if cell_mask.any():
+                        if self.part_per_cell[itype][ifile] is None:
+                            self._load_hash_table(itype, ifile)
+                        lowers = np.argwhere(np.diff(cell_mask) > 0) + 1
+                        uppers = np.argwhere(np.diff(cell_mask) < 0) + 1
+                        if cell_mask[0]:
+                            lowers = np.r_[[[0]], lowers]
+                        if cell_mask[-1]:
+                            uppers = np.r_[uppers, [[len(cell_mask)]]]
+                        cell_intervals = np.hstack((lowers, uppers))
+                        for interval in cell_intervals:
+                            counts.append(int(np.sum(self.part_per_cell[itype][ifile][interval[0]:interval[1]])))
+                            starts.append(int(self.first_in_cell[itype][ifile][interval[0]]))
+                    if np.sum(counts) > 0:
                         if self.sampling_rate >= 1.0:
-                            if rank == 2:
-                                s = np.s_[s, :]
-                            retval.append(f[name][s])
+                            for start, count in zip(starts, counts):
+                                # the reading here is a current bottleneck
+                                # try some grouping ratio magic (e.g. simobj)?
+                                retval.append(f[name][start:start+count])
                         else:
                             pass
         return np.concatenate(retval)
