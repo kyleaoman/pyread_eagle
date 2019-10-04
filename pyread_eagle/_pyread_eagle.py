@@ -74,7 +74,7 @@ class EagleSnapshot(object):
     """Class to represent an open Eagle snapshot"""
 
     def __init__(self, fname, verbose=False):
-        """Open a new snapshot"""  # doc'd
+        """Open a new snapshot"""
         self.isclosed = False
         self.fname = fname
         self.verbose = verbose
@@ -95,7 +95,7 @@ class EagleSnapshot(object):
             if self.verbose:
                 print("  - Read in file header")
             # initialize hashmap all false
-            self.hashmap = np.zeros(self.nhash)
+            self.hashmap = np.zeros(self.nhash, dtype=np.bool)
             name_parts = self.fname.split('.')
             if name_parts[-1] != 'hdf5' or not name_parts[-2].isdigit():
                 raise RuntimeError("Don't understand snapshot file name!")
@@ -150,7 +150,7 @@ class EagleSnapshot(object):
 
     @check_open
     def select_region(self, xmin, xmax, ymin, ymax, zmin, zmax):
-        """Select a region to read in"""  # doc'd
+        """Select a region to read in"""
         if self.verbose:
             print('select_region() called')
         ixmin = int(np.floor(xmin / self.boxsize * self.ncell))
@@ -163,7 +163,7 @@ class EagleSnapshot(object):
 
     @check_open
     def select_grid_cells(self, ixmin, ixmax, iymin, iymax, izmin, izmax):
-        """Select hash grid cells to read in"""  # doc'd
+        """Select hash grid cells to read in"""
         if self.verbose:
             print('select_grid_cells() called')
         n = 0
@@ -185,7 +185,7 @@ class EagleSnapshot(object):
 
     @check_open
     def select_rotated_region(self, centre, xvec, yvec, zvec, length):
-        """Select a non axis aligned region to read in"""  # doc'd
+        """Select a non axis aligned region to read in"""
         diagonal = np.sqrt(3) * self.boxsize / self.ncell
         for ixyz in product(range(self.ncell), range(self.ncell), range(self.ncell)):
             ixyz = np.array(ixyz)
@@ -206,13 +206,13 @@ class EagleSnapshot(object):
 
     @check_open
     def set_sampling_rate(self, rate):
-        """Set the sampling rate for subsequent reads"""  # doc'd
+        """Set the sampling rate for subsequent reads"""
         self.sampling_rate = rate
         return
 
     @check_open
     def clear_selection(self):
-        """Clear the current selection"""  # doc'd
+        """Clear the current selection"""
         if self.verbose:
             print('clear_selection() called')
         self.hashmap = np.zeros(self.nhash)
@@ -223,64 +223,66 @@ class EagleSnapshot(object):
 
     @check_open
     def count_particles(self, itype):
-        """Return the number of particles in the selected region"""  # doc'd
+        """Return the number of particles in the selected region"""
         return self.get_particle_locations(itype, _count=True)
 
     @check_open
     def get_particle_locations(self, itype, _count=False):
-        """Return the locations of particles in the selected region"""  # doc'd
+        """Return the locations of particles in the selected region"""
         # revise this function to be similar to read_extra_dataset to speed up
-        nmax = 0
-        file_index = []
-        file_offset = []
+        file_offsets = []
         if itype < 0 or itype > 5:
             raise ValueError("Particle type index is out of range")
         if self.verbose:
             print("count_particles() called")
         if self.numpart_total[itype] == 0:
-            return 0
+            if _count:
+                return 0
+            else:
+                return np.array([]), np.array([])
         np.random.seed(1)
-        n_to_read = 0
+        counts = []
         end_key = -1
         for ifile in range(self.numfiles):
-            if self.num_keys_in_file[itype][ifile] > 0:
-                for key in range(self.first_key_in_file[itype][ifile],
-                                 self.last_key_in_file[itype][ifile] + 1):
-                    if key <= end_key:
-                        continue
-                    if self.hashmap[key]:
-                        if self.part_per_cell[itype][ifile] is None:
-                            self._load_hash_table(itype, ifile)
-                        end_key = key
-                        while end_key <= self.last_key_in_file[itype][ifile] and self.hashmap[end_key]:
-                            end_key += 1
-                        end_key -= 1
-
-                        for this_key in range(key, end_key + 1):
-                            if self.sampling_rate >= 1.0:
-                                offset = this_key - self.first_key_in_file[itype][ifile]
-                                n = self.part_per_cell[itype][ifile][offset]
-                                n_to_read += n
-                                if not _count:
-                                    file_index.append(np.ones(n, dtype=np.int) * ifile)
-                                    start = self.first_in_cell[itype][ifile][offset]
-                                    end = start + n
-                                    file_offset.append(np.arange(start, end, dtype=np.int))
-                            else:
-                                pass
+            if self.num_keys_in_file[itype][ifile] == 0:
+                counts.append(0)
+                continue
+            cell_mask = self.hashmap[self.first_key_in_file[itype][ifile]:
+                                     self.last_key_in_file[itype][ifile] + 1]
+            if not cell_mask.any():
+                counts.append(0)
+                continue
+            if self.part_per_cell[itype][ifile] is None:
+                self._load_hash_table(itype, ifile)
+            if self.sampling_rate >= 1.0:
+                lengths = self.part_per_cell[itype][ifile][cell_mask]
+                counts.append(np.sum(lengths))
+                if not _count:
+                    starts = self.first_in_cell[itype][ifile][cell_mask]
+                    ends = starts + lengths
+                    file_offsets.append(np.array(
+                        np.repeat(ends - np.cumsum(lengths), lengths)
+                        + np.arange(np.sum(lengths)),
+                        dtype=np.int
+                    ))
+            else:
+                raise NotImplementedError('Sampling rate < 1 not yet supported.')
         if _count:
-            return n_to_read
+            # count
+            return np.sum(counts)
         else:
-            return np.concatenate(file_index), np.concatenate(file_offset)
+            # file index, file_offset
+            return np.repeat(np.arange(self.numfiles), counts), \
+                np.concatenate(file_offsets)
 
     @check_open
     def read_dataset(self, itype, name):
-        """Read a dataset and return it as a Numpy array"""  # doc'd
+        """Read a dataset and return it as a Numpy array"""
         return self.read_extra_dataset(itype, name, None)
 
     @check_open
     def read_extra_dataset(self, itype, name, basename):
-        """Read a dataset from an auxiliary file and return it as a np.array"""  # doc'd
+        """Read a dataset from an auxiliary file and return it as a np.array"""
         if (itype < 0) or (itype > 5):
             raise ValueError('Particle type itype is outside range 0-5!')
         if self.verbose:
@@ -291,109 +293,56 @@ class EagleSnapshot(object):
         retval = []
         np.random.seed(1)
         for ifile in range(self.numfiles):
-            if self.num_keys_in_file[itype][ifile] > 0:
-                fname = '{:s}.{:d}.hdf5'.format(basename if basename else self.basename, ifile)
-                with h5py.File(fname, 'r') as f:
-                    if self.verbose:
-                        print('  - Opened file {:d}'.format(ifile))
-                    starts = []
-                    counts = []
-                    try:
-                        d = f[name]
-                    except KeyError:
-                        raise KeyError('Unable to open dataset: {:s}'.format(name))
-                    if not d.ndim in (1, 2):
-                        raise RuntimeError('Can only read 1D or 2D datasets!')
-                    cell_mask = self.hashmap[self.first_key_in_file[itype][ifile]:
-                                             self.last_key_in_file[itype][ifile] + 1]
-                    if cell_mask.any():
-                        if self.part_per_cell[itype][ifile] is None:
-                            self._load_hash_table(itype, ifile)
-                        lowers = np.argwhere(np.diff(cell_mask) > 0) + 1
-                        uppers = np.argwhere(np.diff(cell_mask) < 0) + 1
-                        if cell_mask[0]:
-                            lowers = np.r_[[[0]], lowers]
-                        if cell_mask[-1]:
-                            uppers = np.r_[uppers, [[len(cell_mask)]]]
-                        cell_intervals = np.hstack((lowers, uppers))
-                        for interval in cell_intervals:
-                            counts.append(int(np.sum(self.part_per_cell[itype][ifile][interval[0]:interval[1]])))
-                            starts.append(int(self.first_in_cell[itype][ifile][interval[0]]))
-                    if np.sum(counts) > 0:
-                        if self.sampling_rate >= 1.0:
-                            for start, count in zip(starts, counts):
-                                # the reading here is a current bottleneck
-                                # try some grouping ratio magic (e.g. simobj)?
-                                retval.append(f[name][start:start+count])
-                        else:
-                            pass
+            if self.num_keys_in_file[itype][ifile] == 0:
+                continue
+            fname = '{:s}.{:d}.hdf5'.format(basename if basename else self.basename, ifile)
+            with h5py.File(fname, 'r') as f:
+                if self.verbose:
+                    print('  - Opened file {:d}'.format(ifile))
+                try:
+                    d = f[name]
+                except KeyError:
+                    raise KeyError('Unable to open dataset: {:s}'.format(name))
+                if not d.ndim in (1, 2):
+                    raise RuntimeError('Can only read 1D or 2D datasets!')
+                cell_mask = self.hashmap[self.first_key_in_file[itype][ifile]:
+                                         self.last_key_in_file[itype][ifile] + 1]
+                if not cell_mask.any():
+                    continue
+                if self.part_per_cell[itype][ifile] is None:
+                    self._load_hash_table(itype, ifile)
+                lowers = np.argwhere(np.diff(cell_mask.astype(np.int)) > 0) + 1
+                uppers = np.argwhere(np.diff(cell_mask.astype(np.int)) < 0) + 1
+                if cell_mask[0]:
+                    lowers = np.r_[[[0]], lowers]
+                if cell_mask[-1]:
+                    uppers = np.r_[uppers, [[len(cell_mask)]]]
+                cell_intervals = np.hstack((lowers, uppers))
+                counts = []
+                starts = []
+                for interval in cell_intervals:
+                    counts.append(int(np.sum(self.part_per_cell[itype][ifile][interval[0]:interval[1]])))
+                    starts.append(int(self.first_in_cell[itype][ifile][interval[0]]))
+                if np.sum(counts) > 0:
+                    if self.sampling_rate >= 1.0:
+                        for start, count in zip(starts, counts):
+                            # the reading here is a current bottleneck
+                            retval.append(f[name][start:start+count])
+                    else:
+                        raise NotImplementedError('Sampling rate < 1 not yet supported.')
         return np.concatenate(retval)
 
 
     @check_open
     def datasets(self, itype):
-        """Return a list of datasets for the specified particle type"""  # doc'd
+        """Return a list of datasets for the specified particle type"""
         if itype < 0 or itype > 5:
             raise ValueError("Particle type index is out of range")
         return self.dataset_names[itype]
 
     @check_open
     def split_selection(self, ThisTask, NTask):
-        """Split the selected region(s) between processors"""  # doc'd
-        self._split_selection(ThisTask, NTask)
-
-    @check_open
-    def close(self):
-        """Close the snapshot and deallocate associated memory"""  # doc'd
-        del self.fname
-        del self.verbose
-        del self.sampling_rate
-        del self.boxsize
-        del self.numfiles
-        del self.hashbits
-        del self.ncell
-        del self.nhash
-        del self.numpart_total
-        del self.hashmap
-        del self.basename
-        del self.first_key_in_file
-        del self.last_key_in_file
-        del self.num_keys_in_file
-        del self.num_part_in_file
-        del self.part_per_cell
-        del self.first_in_cell
-        del self.num_datasets
-        del self.dataset_names
-        del self.split_rank
-        del self.split_size
-        self.isclosed = True
-
-        return
-
-    @check_open
-    def _collect_dataset_names(self):
-        self.num_datasets = [0 for i in range(6)]
-        self.dataset_names = [None for i in range(6)]
-        #locate a file which actually has data for given particle type
-        for itype in range(6):
-            if self.numpart_total[itype] > 0:
-                ifile = 0
-                while self.num_keys_in_file[itype][ifile] == 0:
-                    ifile += 1
-                filename = '{:s}.{:d}.hdf5'.format(self.basename, ifile)
-                # open this file and record dataset names
-                with h5py.File(filename, 'r') as f:
-                    try:
-                        g = f['/PartType{:d}'.format(itype)]
-                    except KeyError:
-                        self.num_datasets[itype] = 0
-                    else:
-                        self.dataset_names[itype] = _get_dataset_list(g)
-                        self.num_datasets[itype] = len(self.dataset_names[itype])
-        return  
-
-    @check_open
-    def _split_selection(self, ThisTask, NTask):
+        """Split the selected region(s) between processors"""
         if (ThisTask < 0) or (Ntask < 1) or (ThisTask >= Ntask):
             raise ValueError('Invalid paramters')
         # don't allow repeat splitting
@@ -438,6 +387,58 @@ class EagleSnapshot(object):
                     np.cumsum(self.part_per_cell[itype][ifile])[:-1]
                 ]
         return
+
+
+    @check_open
+    def close(self):
+        """Close the snapshot and deallocate associated memory"""
+        del self.fname
+        del self.verbose
+        del self.sampling_rate
+        del self.boxsize
+        del self.numfiles
+        del self.hashbits
+        del self.ncell
+        del self.nhash
+        del self.numpart_total
+        del self.hashmap
+        del self.basename
+        del self.first_key_in_file
+        del self.last_key_in_file
+        del self.num_keys_in_file
+        del self.num_part_in_file
+        del self.part_per_cell
+        del self.first_in_cell
+        del self.num_datasets
+        del self.dataset_names
+        del self.split_rank
+        del self.split_size
+        self.isclosed = True
+
+        return
+
+    @check_open
+    def _collect_dataset_names(self):
+        self.num_datasets = [0 for i in range(6)]
+        self.dataset_names = [None for i in range(6)]
+        #locate a file which actually has data for given particle type
+        for itype in range(6):
+            if self.numpart_total[itype] == 0:
+                continue
+            ifile = 0
+            while self.num_keys_in_file[itype][ifile] == 0:
+                ifile += 1
+            filename = '{:s}.{:d}.hdf5'.format(self.basename, ifile)
+            # open this file and record dataset names
+            with h5py.File(filename, 'r') as f:
+                try:
+                    g = f['/PartType{:d}'.format(itype)]
+                except KeyError:
+                    self.num_datasets[itype] = 0
+                else:
+                    self.dataset_names[itype] = _get_dataset_list(g)
+                    self.num_datasets[itype] = len(self.dataset_names[itype])
+        return  
 
     @check_open
     def _peano_hilbert_key(self, x, y, z):

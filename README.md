@@ -63,18 +63,14 @@ del snap
 
 ### Speed
 
-Currently `pyread_eagle` is slower than `read_eagle`. The actual read_dataset calls
-vary depending on the region (how contiguous it is in the dataset) between equal
-speed and 5x slower. Given the limited flexibility of the `h5py` API, I believe it
-will be difficult to alleviate this further. Still, being within a factor of 5 is
-probably acceptable, especially for use in applications which are not I/O limited.
+`pyread_eagle` is comparable in speed to `read_eagle`. The actual read_dataset calls
+vary depending on the region (how contiguous it is in the dataset) between 2x faster
+and 5x slower than the C version. Given the limited flexibility of the `h5py` API, I believe it
+will be difficult to speed this up further.
 
 There is some substantial overhead in calls to `select_region` since the Peano-Hilbert
 key evaluations are currently done serially. This should be straightforward to
 vectorize for a large speedup and is next on the TODO list.
-
-`count_particles` and `get_particle_locations` are currently slow, but can be sped
-up by emulating the structure of `read_extra_dataset`.
 
 ### Error handling
 
@@ -85,7 +81,6 @@ the same error messages may appear. I have also chosen to be more lax and
 not try to catch every edge case by hand, rather letting failures happen
 and be reported organically by the underlying python libraries. Please
 report any errors whose messages are obscure, and of course any bugs.
-
 
 ### Description of the routines and parameters
 
