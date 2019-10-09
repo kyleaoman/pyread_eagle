@@ -43,7 +43,7 @@ _rotymap_table = np.array([1, 2, 3, 0, 16, 17, 18, 19, 11, 8, 9, 10, 22, 23, 20,
 _rotx_table = np.array([3, 0, 0, 2, 2, 0, 0, 1])
 _roty_table = np.array([0, 1, 1, 2, 2, 3, 3, 0])
 
-_sense_table = [-1, -1, -1, +1, +1, -1, -1, -1]
+_sense_table = np.array([-1, -1, -1, +1, +1, -1, -1, -1])
 
 
 def _get_dataset_list(grp, prefix=""):
@@ -166,42 +166,54 @@ class EagleSnapshot(object):
         """Select hash grid cells to read in"""
         if self.verbose:
             print('select_grid_cells() called')
-        n = 0
-        for ixyz in product(
-                range(ixmin, ixmax + 1),
-                range(iymin, iymax + 1),
-                range(izmin, izmax + 1)
-        ):
-            ixyz = np.array(ixyz)
-            while (ixyz < 0).any():
-                ixyz[ixyz < 0] += self.ncell
-            while (ixyz >= self.ncell).any():
-                ixyz[ixyz >= self.ncell] -= self.ncell
-            self.hashmap[self._peano_hilbert_key(*tuple(ixyz))] = 1
-            n += 1
+        ixyz = np.vstack(
+            [_i.ravel()
+            for _i in np.mgrid[ixmin:ixmax + 1, iymin:iymax + 1, izmin:izmax + 1]]
+        )
+        while (ixyz < 0).any():
+            ixyz[ixyz < 0] += self.ncell
+        while (ixyz >= self.ncell).any():
+            ixyz[ixyz >= self.ncell] -= self.ncell
+        self.hashmap[self._peano_hilbert_key(*tuple(ixyz))] = True
         if self.verbose:
-            print("  - Selected {:d} cells of {:d}".format(n, self.nhash))
+            print("  - Selected {:d} cells of {:d}".format(np.sum(hashmap), self.nhash))
         return
 
     @check_open
     def select_rotated_region(self, centre, xvec, yvec, zvec, length):
         """Select a non axis aligned region to read in"""
+        centre = np.array(centre)
+        xvec = np.array(xvec)
+        yvec = np.array(yvec)
+        zvec = np.array(zvec)
+        length = np.array(length)
+        if any([param.shape != (3,) for param in (centre, xvec, yvec, zvec, length)]):
+            raise ValueError("select_rotated_region parameters must all have shape (3, )")
+        if any([np.dot(xvec, yvec) != 0.0, np.dot(xvec, zvec) != 0,
+                np.linalg.norm(xvec) != 1.0, np.linalg.norm(yvec) != 1.0,
+                np.linalg.norm(zvec) != 1.0]):
+            raise ValueError("select_rotated_region parameters xvec, yvec & zvec must"
+                             "be mutually orthogonal unit vectors")
         diagonal = np.sqrt(3) * self.boxsize / self.ncell
-        for ixyz in product(range(self.ncell), range(self.ncell), range(self.ncell)):
-            ixyz = np.array(ixyz)
-            cell_centre = self.boxsize / self.ncell * (ixyz + .5) - np.array(centre)
-            while (cell_centre > .5 * self.boxsize).any():
-                cell_centre[cell_centre > .5 * self.boxsize] -= self.boxsize
-            while (cell_centre < .5 * self.boxsize).any():
-                cell_centre[cell_centre < .5 * self.boxsize] += self.boxsize
-            pos = np.array([
-                np.sum(cell_centre * xvec),
-                np.sum(cell_centre * yvec),
-                np.sum(cell_centre * zvec)
-            ])
-            if (pos > -.5 * length - .5 * diagonal).all() \
-               and (pos < .5 * length + .5 * diagonal).all():
-                self.hashmap[self._peano_hilbert_key(*tuple(ixyz))] = 1
+        ixyz = np.vstack(
+            [_i.ravel()
+            for _i in np.mgrid[0:self.ncell, 0:self.ncell, 0:self.ncell]]
+        ).T
+        cell_centre = self.boxsize / self.ncell * (ixyz + .5) - centre
+        while (cell_centre > .5 * self.boxsize).any():
+            cell_centre[cell_centre > .5 * self.boxsize] -= self.boxsize
+        while (cell_centre < -.5 * self.boxsize).any():
+            cell_centre[cell_centre < -.5 * self.boxsize] += self.boxsize
+        pos = np.vstack((
+            np.sum(cell_centre * xvec, axis=1),
+            np.sum(cell_centre * yvec, axis=1),
+            np.sum(cell_centre * zvec, axis=1)
+        )).T
+        accept_cells = np.logical_and(
+            (pos > -.5 * length - .5 * diagonal).all(axis=1),
+            (pos < .5 * length + .5 * diagonal).all(axis=1)
+        )
+        self.hashmap[self._peano_hilbert_key(*tuple(ixyz[accept_cells].T))] = True
         return
 
     @check_open
@@ -215,7 +227,7 @@ class EagleSnapshot(object):
         """Clear the current selection"""
         if self.verbose:
             print('clear_selection() called')
-        self.hashmap = np.zeros(self.nhash)
+        self.hashmap = np.zeros(self.nhash, dtype=np.bool)
         # it's ok to call split selection() again after clearing the selection
         self.split_size = -1
         self.split_rank = -1
@@ -341,9 +353,9 @@ class EagleSnapshot(object):
         return self.dataset_names[itype]
 
     @check_open
-    def split_selection(self, ThisTask, NTask):
+    def split_selection(self, ThisTask, NTask, new=False):
         """Split the selected region(s) between processors"""
-        if (ThisTask < 0) or (Ntask < 1) or (ThisTask >= Ntask):
+        if (ThisTask < 0) or (NTask < 1) or (ThisTask >= NTask):
             raise ValueError('Invalid paramters')
         # don't allow repeat splitting
         if (self.split_rank >= 0) or self.split_size >= 0:
@@ -351,24 +363,15 @@ class EagleSnapshot(object):
         # count how many hash cels have been selected
         selected_keys = np.sum(self.hashmap)
         # decide how any keys to assign to this and previous processors
-        Task = 0
-        nkey_prev = 0
-        nkey_this = 0
-        for key in range(selected_keys):
-            if Task < ThisTask:
-                nkey_prev += 1
-            if Task == ThisTask:
-                nkey_this += 1
-            Task = (Task + 1) % NTask
+        nkey_split = selected_keys // NTask + np.asarray(selected_keys % NTask > np.arange(NTask), dtype=np.int)
+        nkey_this = nkey_split[ThisTask]
+        nkey_prev = np.sum(nkey_split[:ThisTask])
         # un-select keys outside range to read on this processor
-        selected_keys = 0
-        for key in range(self.nhash):
-            if self.hashmap[key] != 0:
-                selected_keys += 1
-                if selected_keys <= nkey_prev:
-                    self.hashmap[key] = 0
-                if selected_keys > nkey_prev + nkey_this:
-                    self.hashmap[key] = 0
+        self.hashmap[self.hashmap] = np.r_[
+            np.zeros(nkey_prev, dtype=np.bool),
+            np.ones(nkey_this, dtype=np.bool),
+            np.zeros(selected_keys - nkey_prev - nkey_this, dtype=np.bool)
+        ]
         # store split parameters
         self.split_size = NTask
         self.split_rank = ThisTask
@@ -442,31 +445,41 @@ class EagleSnapshot(object):
 
     @check_open
     def _peano_hilbert_key(self, x, y, z):
-        mask = 1 << (self.hashbits - 1)
-        key = 0
-        rotation = 0
-        sense = 1
+        x = np.atleast_1d(x)
+        y = np.atleast_1d(y)
+        z = np.atleast_1d(z)
+        mask = 1 << (self.hashbits - 1)  # leave scalar
+        key = np.zeros(x.shape, dtype = np.int)
+        rotation = np.zeros(x.shape, dtype=np.int)
+        sense = np.ones(x.shape, dtype=np.int)
 
         for i in range(self.hashbits):
             bitx = np.where(x & mask, 1, 0)
             bity = np.where(y & mask, 1, 0)
             bitz = np.where(z & mask, 1, 0)
 
-            quad = _quadrants[rotation][bitx][bity][bitz]
+            quad = _quadrants[rotation, bitx, bity, bitz]
 
-            key <<= 3
-            key += quad if sense == 1 else 7 - quad
+            key = key << 3
+            key += np.where(sense > 0, quad, 7 - quad)
 
             rotx = _rotx_table[quad]
             roty = _roty_table[quad]
-            sense *= _sense_table[quad]
-
-            while rotx > 0:
-                rotation = _rotxmap_table[rotation]
-                rotx -= 1
-            while roty > 0:
-                rotation = _rotymap_table[rotation]
-                roty -= 1
+            sense = sense * _sense_table[quad]
+            while (rotx > 0).any():
+                rotation = np.where(
+                    rotx > 0,
+                    _rotxmap_table[rotation],
+                    rotation
+                )
+                rotx[rotx > 0] -= 1
+            while (roty > 0).any():
+                rotation = np.where(
+                    roty > 0,
+                    _rotymap_table[rotation],
+                    rotation
+                )
+                roty[roty > 0] -= 1
 
             mask >>= 1
 

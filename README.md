@@ -151,14 +151,16 @@ Parameters
   
 `snap.select_rotated_region(centre, xvec, yvec, zvec, length)`
 
-???
+Selects a box-shaped region rotated relative to the simulation box axes.
+The `[xyz]vec` parameters should be a set of mutually orthogonal unit vectors
+defining the axes of the box to be selected.
 
 Parameters
-  - `centre`: ?
-  - `xvec`: ?
-  - `yvec`: ?
-  - `zvec`: ?
-  - `length`: ?
+  - `centre`: coordinate centre of the region to select, shape (3, )
+  - `xvec`: selection box 'x' unit vector in simulation box coordinates, shape (3, )
+  - `yvec`: selection box 'y' unit vector in simulation box coordinates, shape (3, )
+  - `zvec`: selection box 'z' unit vector in simulation box coordinates, shape (3, )
+  - `length`: selection box lengths (not half-length) along each axis, shape (3, )
 
 #### Count particles
 
