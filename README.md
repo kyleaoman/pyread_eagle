@@ -64,13 +64,9 @@ del snap
 ### Speed
 
 `pyread_eagle` is comparable in speed to `read_eagle`. The actual read_dataset calls
-vary depending on the region (how contiguous it is in the dataset) between 2x faster
+vary depending on the region (how contiguous it is in the dataset) between very roughly 2x faster
 and 5x slower than the C version. Given the limited flexibility of the `h5py` API, I believe it
 will be difficult to speed this up further.
-
-There is some substantial overhead in calls to `select_region` since the Peano-Hilbert
-key evaluations are currently done serially. This should be straightforward to
-vectorize for a large speedup and is next on the TODO list.
 
 ### Error handling
 
