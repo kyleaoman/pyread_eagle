@@ -4,6 +4,8 @@ from itertools import product
 from functools import wraps
 
 
+_random_seed = 1  # doesn't matter which, but ensure consistency
+
 _quadrants = np.array([
   # rotx=0, roty=0-3
   [[[0, 7], [1, 6]], [[3, 4], [2, 5]]],
@@ -252,7 +254,6 @@ class EagleSnapshot(object):
                 return 0
             else:
                 return np.array([]), np.array([])
-        np.random.seed(1)
         counts = []
         end_key = -1
         for ifile in range(self.numfiles):
@@ -266,19 +267,27 @@ class EagleSnapshot(object):
                 continue
             if self.part_per_cell[itype][ifile] is None:
                 self._load_hash_table(itype, ifile)
-            if self.sampling_rate >= 1.0:
-                lengths = self.part_per_cell[itype][ifile][cell_mask]
-                counts.append(np.sum(lengths))
-                if not _count:
-                    starts = self.first_in_cell[itype][ifile][cell_mask]
-                    ends = starts + lengths
-                    file_offsets.append(np.array(
-                        np.repeat(ends - np.cumsum(lengths), lengths)
-                        + np.arange(np.sum(lengths)),
-                        dtype=np.int
-                    ))
+            lengths = self.part_per_cell[itype][ifile][cell_mask]
+            if self.sampling_rate < 1.0:
+                counts.append(int(np.floor(np.sum(lengths) * self.sampling_rate)))
             else:
-                raise NotImplementedError('Sampling rate < 1 not yet supported.')
+                counts.append(np.sum(lengths))
+            print('  ', counts[-1])
+            if not _count:
+                starts = self.first_in_cell[itype][ifile][cell_mask]
+                ends = starts + lengths
+                fos = np.array(
+                    np.repeat(ends - np.cumsum(lengths), lengths)
+                    + np.arange(np.sum(lengths)),
+                    dtype=np.int
+                )
+                if self.sampling_rate < 1.0:
+                    sub = np.arange(fos.shape[0])
+                    np.random.seed(_random_seed)
+                    np.random.shuffle(sub)
+                    sub = sub[:int(np.floor(counts[-1]))]
+                    fos = fos[sub]
+                file_offsets.append(fos)
         if _count:
             # count
             return np.sum(counts)
@@ -302,8 +311,7 @@ class EagleSnapshot(object):
         if self.numpart_total[itype] == 0:
             return
         name = "PartType{:d}/{:s}".format(itype, name)
-        retval = []
-        np.random.seed(1)
+        all_retval = []
         for ifile in range(self.numfiles):
             if self.num_keys_in_file[itype][ifile] == 0:
                 continue
@@ -332,17 +340,27 @@ class EagleSnapshot(object):
                 cell_intervals = np.hstack((lowers, uppers))
                 counts = []
                 starts = []
+                retval = []
                 for interval in cell_intervals:
                     counts.append(int(np.sum(self.part_per_cell[itype][ifile][interval[0]:interval[1]])))
                     starts.append(int(self.first_in_cell[itype][ifile][interval[0]]))
                 if np.sum(counts) > 0:
-                    if self.sampling_rate >= 1.0:
-                        for start, count in zip(starts, counts):
-                            # the reading here is a current bottleneck
-                            retval.append(f[name][start:start+count])
-                    else:
-                        raise NotImplementedError('Sampling rate < 1 not yet supported.')
-        return np.concatenate(retval)
+                    for start, count in zip(starts, counts):
+                        # the reading here is a current bottleneck
+                        dat = f[name][start:start+count]
+                        if self.sampling_rate >= 1.0:
+                            all_retval.append(dat)
+                        else:
+                            retval.append(dat)
+                if self.sampling_rate < 1.0:
+                    #cut file-by-file to conserve memory
+                    retval = np.concatenate(retval)
+                    sub = np.arange(retval.shape[0])
+                    np.random.seed(_random_seed)
+                    np.random.shuffle(sub)
+                    sub = sub[:int(np.floor(retval.shape[0] * self.sampling_rate))]
+                    all_retval.append(retval[sub])
+        return np.concatenate(all_retval)
 
 
     @check_open

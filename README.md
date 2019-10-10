@@ -78,6 +78,22 @@ not try to catch every edge case by hand, rather letting failures happen
 and be reported organically by the underlying python libraries. Please
 report any errors whose messages are obscure, and of course any bugs.
 
+### Random sampling
+
+Note that the output of pyread_eagle will differ from the original version
+when the sampling rate is set < 1.0. In the original version, a subsample
+was drawn by comparing a pseudo-random number to the sampling rate for each
+particle. This resulted in a subsample of *approximately* the requested
+fraction of particles. Since the seed was set explicitly, the results were
+reproducible. Since pyread_eagle uses the numpy PRNG, the output cannot
+match what would be obtained using the C PRNG. Instead, a random sample of
+consistent length is drawn (the seed is still set explicitly, so results
+remain reproducible run-to-run), equal to floor(number of particle * sampling rate),
+evaluated *file-by-file*. So, the overall total number of particles times the
+sampling rate will not always be equal to the length of the output array,
+due to rounding errors (the largest possible difference is the number
+of files in the snapshot).
+
 ### Description of the routines and parameters
 
 #### Open snapshot
@@ -265,7 +281,7 @@ Parameters
 
 If rate is set < 1 before reading datasets, a random subsample
 of particles will be read, with the fraction of particles read
-set by the rate.
+set by the rate. See the note on random subsamples (above).
 
 Parameters
   - `rate`: fraction of particles to be read (rate >= 1 for all particles)
