@@ -1,6 +1,10 @@
 ## Read routines for Peano-Hilbert key sorted Eagle snapshots
 Pure-python port of J. Helly's [read_eagle](https://github.com/jchelly/read_eagle).
 
+### Quickstart
+
+If you're used to using the original `read_eagle`, all you should need to do is change import statements from `import read_eagle` to `import pyread_eagle as read_eagle`, or similar (`from pyread_eagle import EagleSnapshot`, etc.). Existing scripts should work seamlessly with this change.
+
 ### Installation
  - Download via web UI, or 'git clone https://github.com/kyleaoman/pyread_eagle.git'
  - Install dependencies if necessary (see 'setup.py'), some may be found in other repositories by kyleaoman.
