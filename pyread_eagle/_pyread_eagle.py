@@ -1,6 +1,5 @@
 import h5py
 import numpy as np
-from itertools import product
 from functools import wraps
 
 
@@ -39,8 +38,10 @@ _quadrants = np.array([
   [[[5, 2], [6, 1]], [[4, 3], [7, 0]]]
 ])
 
-_rotxmap_table = np.array([4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0, 1, 2, 3, 17, 18, 19, 16, 23, 20, 21, 22])
-_rotymap_table = np.array([1, 2, 3, 0, 16, 17, 18, 19, 11, 8, 9, 10, 22, 23, 20, 21, 14, 15, 12, 13, 4, 5, 6, 7])
+_rotxmap_table = np.array([4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0, 1, 2,
+                           3, 17, 18, 19, 16, 23, 20, 21, 22])
+_rotymap_table = np.array([1, 2, 3, 0, 16, 17, 18, 19, 11, 8, 9, 10, 22, 23,
+                           20, 21, 14, 15, 12, 13, 4, 5, 6, 7])
 
 _rotx_table = np.array([3, 0, 0, 2, 2, 0, 0, 1])
 _roty_table = np.array([0, 1, 1, 2, 2, 3, 3, 0])
@@ -54,7 +55,9 @@ def _get_dataset_list(grp, prefix=""):
         grp[prefix].visit(all_objs.append)
     else:
         grp.visit(all_objs.append)
-    all_dsets = ['/' + obj for obj in all_objs if isinstance(grp[obj], h5py.Dataset)]
+    all_dsets = ['/' + obj
+                 for obj in all_objs
+                 if isinstance(grp[obj], h5py.Dataset)]
     return all_dsets
 
 
@@ -93,7 +96,8 @@ class EagleSnapshot(object):
             self.hashbits = f['/HashTable'].attrs['HashBits']
             self.ncell = 1 << self.hashbits
             self.nhash = 1 << 3 * self.hashbits
-            self.numpart_total = [nptot[i] + nptot_hw[i] << 32 for i in range(6)]
+            self.numpart_total = [nptot[i] + nptot_hw[i] << 32
+                                  for i in range(6)]
             if self.verbose:
                 print("  - Read in file header")
             # initialize hashmap all false
@@ -125,26 +129,32 @@ class EagleSnapshot(object):
                 if self.numpart_total[itype] > 0 else None
                 for itype in range(6)
             ]
-        self.num_part_in_file = [[None for ifile in range(self.numfiles)] for itype in range(6)]
+        self.num_part_in_file = [[None
+                                  for ifile in range(self.numfiles)]
+                                 for itype in range(6)]
         for ifile in range(self.numfiles):
             fname = '{:s}.{:d}.hdf5'.format(self.basename, ifile)
             with h5py.File(fname, 'r') as f:
                 numpart_thisfile = f['/Header'].attrs['NumPart_ThisFile']
                 for itype in range(6):
-                    self.num_part_in_file[itype][ifile] = numpart_thisfile[itype]
+                    self.num_part_in_file[itype][ifile] = \
+                        numpart_thisfile[itype]
 
         # These two datasets different in each file
-        self.part_per_cell = [[None for ifile in range(self.numfiles)] for itype in range(6)]
-        self.first_in_cell = [[None for ifile in range(self.numfiles)] for itype in range(6)]
+        self.part_per_cell = [[None
+                               for ifile in range(self.numfiles)]
+                              for itype in range(6)]
+        self.first_in_cell = [[None
+                               for ifile in range(self.numfiles)]
+                              for itype in range(6)]
         # don't force read here, read on demand instead
 
         self._collect_dataset_names()
-        
+
         self.split_rank = -1
         self.split_size = -1
 
         return
-
 
     def __del__(self):
         self.close()
@@ -169,8 +179,12 @@ class EagleSnapshot(object):
         if self.verbose:
             print('select_grid_cells() called')
         ixyz = np.vstack(
-            [_i.ravel()
-            for _i in np.mgrid[ixmin:ixmax + 1, iymin:iymax + 1, izmin:izmax + 1]]
+            [
+                _i.ravel()
+                for _i in np.mgrid[ixmin:ixmax + 1,
+                                   iymin:iymax + 1,
+                                   izmin:izmax + 1]
+            ]
         )
         while (ixyz < 0).any():
             ixyz[ixyz < 0] += self.ncell
@@ -178,7 +192,8 @@ class EagleSnapshot(object):
             ixyz[ixyz >= self.ncell] -= self.ncell
         self.hashmap[self._peano_hilbert_key(*tuple(ixyz))] = True
         if self.verbose:
-            print("  - Selected {:d} cells of {:d}".format(np.sum(hashmap), self.nhash))
+            print("  - Selected {:d} cells of {:d}".format(
+                np.sum(self.hashmap), self.nhash))
         return
 
     @check_open
@@ -189,17 +204,19 @@ class EagleSnapshot(object):
         yvec = np.array(yvec)
         zvec = np.array(zvec)
         length = np.array(length)
-        if any([param.shape != (3,) for param in (centre, xvec, yvec, zvec, length)]):
-            raise ValueError("select_rotated_region parameters must all have shape (3, )")
+        if any([param.shape != (3,)
+                for param in (centre, xvec, yvec, zvec, length)]):
+            raise ValueError("select_rotated_region parameters must all have "
+                             "shape (3, )")
         if any([np.dot(xvec, yvec) != 0.0, np.dot(xvec, zvec) != 0,
                 np.linalg.norm(xvec) != 1.0, np.linalg.norm(yvec) != 1.0,
                 np.linalg.norm(zvec) != 1.0]):
-            raise ValueError("select_rotated_region parameters xvec, yvec & zvec must"
-                             "be mutually orthogonal unit vectors")
+            raise ValueError("select_rotated_region parameters xvec, yvec &"
+                             " zvec must be mutually orthogonal unit vectors")
         diagonal = np.sqrt(3) * self.boxsize / self.ncell
         ixyz = np.vstack(
             [_i.ravel()
-            for _i in np.mgrid[0:self.ncell, 0:self.ncell, 0:self.ncell]]
+             for _i in np.mgrid[0:self.ncell, 0:self.ncell, 0:self.ncell]]
         ).T
         cell_centre = self.boxsize / self.ncell * (ixyz + .5) - centre
         while (cell_centre > .5 * self.boxsize).any():
@@ -215,7 +232,8 @@ class EagleSnapshot(object):
             (pos > -.5 * length - .5 * diagonal).all(axis=1),
             (pos < .5 * length + .5 * diagonal).all(axis=1)
         )
-        self.hashmap[self._peano_hilbert_key(*tuple(ixyz[accept_cells].T))] = True
+        self.hashmap[self._peano_hilbert_key(*tuple(ixyz[accept_cells].T))] = \
+            True
         return
 
     @check_open
@@ -255,7 +273,6 @@ class EagleSnapshot(object):
             else:
                 return np.array([]), np.array([])
         counts = []
-        end_key = -1
         for ifile in range(self.numfiles):
             if self.num_keys_in_file[itype][ifile] == 0:
                 counts.append(0)
@@ -269,7 +286,9 @@ class EagleSnapshot(object):
                 self._load_hash_table(itype, ifile)
             lengths = self.part_per_cell[itype][ifile][cell_mask]
             if self.sampling_rate < 1.0:
-                counts.append(int(np.floor(np.sum(lengths) * self.sampling_rate)))
+                counts.append(
+                    int(np.floor(np.sum(lengths) * self.sampling_rate))
+                )
             else:
                 counts.append(np.sum(lengths))
             print('  ', counts[-1])
@@ -315,7 +334,8 @@ class EagleSnapshot(object):
         for ifile in range(self.numfiles):
             if self.num_keys_in_file[itype][ifile] == 0:
                 continue
-            fname = '{:s}.{:d}.hdf5'.format(basename if basename else self.basename, ifile)
+            fname = '{:s}.{:d}.hdf5'.format(basename if basename
+                                            else self.basename, ifile)
             with h5py.File(fname, 'r') as f:
                 if self.verbose:
                     print('  - Opened file {:d}'.format(ifile))
@@ -323,10 +343,12 @@ class EagleSnapshot(object):
                     d = f[name]
                 except KeyError:
                     raise KeyError('Unable to open dataset: {:s}'.format(name))
-                if not d.ndim in (1, 2):
+                if d.ndim not in (1, 2):
                     raise RuntimeError('Can only read 1D or 2D datasets!')
-                cell_mask = self.hashmap[self.first_key_in_file[itype][ifile]:
-                                         self.last_key_in_file[itype][ifile] + 1]
+                cell_mask = self.hashmap[
+                    self.first_key_in_file[itype][ifile]:
+                    self.last_key_in_file[itype][ifile] + 1
+                ]
                 if not cell_mask.any():
                     continue
                 if self.part_per_cell[itype][ifile] is None:
@@ -342,8 +364,14 @@ class EagleSnapshot(object):
                 starts = []
                 retval = []
                 for interval in cell_intervals:
-                    counts.append(int(np.sum(self.part_per_cell[itype][ifile][interval[0]:interval[1]])))
-                    starts.append(int(self.first_in_cell[itype][ifile][interval[0]]))
+                    counts.append(int(np.sum(
+                            self.part_per_cell[itype][ifile][
+                                interval[0]:interval[1]
+                            ]
+                    )))
+                    starts.append(int(
+                        self.first_in_cell[itype][ifile][interval[0]]
+                    ))
                 if np.sum(counts) > 0:
                     for start, count in zip(starts, counts):
                         # the reading here is a current bottleneck
@@ -353,15 +381,15 @@ class EagleSnapshot(object):
                         else:
                             retval.append(dat)
                 if self.sampling_rate < 1.0:
-                    #cut file-by-file to conserve memory
+                    # cut file-by-file to conserve memory
                     retval = np.concatenate(retval)
                     sub = np.arange(retval.shape[0])
                     np.random.seed(_random_seed)
                     np.random.shuffle(sub)
-                    sub = sub[:int(np.floor(retval.shape[0] * self.sampling_rate))]
+                    sub = sub[:int(np.floor(retval.shape[0]
+                                            * self.sampling_rate))]
                     all_retval.append(retval[sub])
         return np.concatenate(all_retval)
-
 
     @check_open
     def datasets(self, itype):
@@ -381,7 +409,8 @@ class EagleSnapshot(object):
         # count how many hash cels have been selected
         selected_keys = np.sum(self.hashmap)
         # decide how any keys to assign to this and previous processors
-        nkey_split = selected_keys // NTask + np.asarray(selected_keys % NTask > np.arange(NTask), dtype=np.int)
+        nkey_split = selected_keys // NTask + \
+            np.asarray(selected_keys % NTask > np.arange(NTask), dtype=np.int)
         nkey_this = nkey_split[ThisTask]
         nkey_prev = np.sum(nkey_split[:ThisTask])
         # un-select keys outside range to read on this processor
@@ -398,17 +427,20 @@ class EagleSnapshot(object):
     @check_open
     def _load_hash_table(self, itype, ifile):
         if self.verbose:
-            print('  - Reading hash table for file {:d} particle type {:d}'.format(ifile, itype))
-        if (self.numpart_total[itype] > 0) and (self.num_keys_in_file[itype][ifile] > 0):
-            with h5py.File('{:s}.{:d}.hdf5'.format(self.basename, ifile), 'r') as f:
-                self.part_per_cell[itype][ifile] = \
-                    f['/HashTable/PartType{:d}/NumParticleInCell'.format(itype)][...]
+            print('  - Reading hash table for file '
+                  '{:d} particle type {:d}'.format(ifile, itype))
+        if (self.numpart_total[itype] > 0) and \
+           (self.num_keys_in_file[itype][ifile] > 0):
+            fname = '{:s}.{:d}.hdf5'.format(self.basename, ifile)
+            with h5py.File(fname, 'r') as f:
+                hpath = '/HashTable/PartType{:d}/'\
+                    'NumParticleInCell'.format(itype)
+                self.part_per_cell[itype][ifile] = f[hpath][...]
                 self.first_in_cell[itype][ifile] = np.r_[
                     0,
                     np.cumsum(self.part_per_cell[itype][ifile])[:-1]
                 ]
         return
-
 
     @check_open
     def close(self):
@@ -442,7 +474,7 @@ class EagleSnapshot(object):
     def _collect_dataset_names(self):
         self.num_datasets = [0 for i in range(6)]
         self.dataset_names = [None for i in range(6)]
-        #locate a file which actually has data for given particle type
+        # locate a file which actually has data for given particle type
         for itype in range(6):
             if self.numpart_total[itype] == 0:
                 continue
@@ -459,7 +491,7 @@ class EagleSnapshot(object):
                 else:
                     self.dataset_names[itype] = _get_dataset_list(g)
                     self.num_datasets[itype] = len(self.dataset_names[itype])
-        return  
+        return
 
     @check_open
     def _peano_hilbert_key(self, x, y, z):
@@ -467,7 +499,7 @@ class EagleSnapshot(object):
         y = np.atleast_1d(y)
         z = np.atleast_1d(z)
         mask = 1 << (self.hashbits - 1)  # leave scalar
-        key = np.zeros(x.shape, dtype = np.int)
+        key = np.zeros(x.shape, dtype=np.int)
         rotation = np.zeros(x.shape, dtype=np.int)
         sense = np.ones(x.shape, dtype=np.int)
 
