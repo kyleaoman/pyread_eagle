@@ -291,7 +291,8 @@ class EagleSnapshot(object):
                 )
             else:
                 counts.append(np.sum(lengths))
-            print('  ', counts[-1])
+            if self.verbose:
+                print('  ', counts[-1])
             if not _count:
                 starts = self.first_in_cell[itype][ifile][cell_mask]
                 ends = starts + lengths
