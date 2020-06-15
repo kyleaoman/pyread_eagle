@@ -98,11 +98,14 @@ class EagleSnapshot(object):
             self.hashbits = f['/HashTable'].attrs['HashBits']
             self.ncell = 1 << self.hashbits
             self.nhash = 1 << 3 * self.hashbits
-            self.numpart_total = [nptot[i] + nptot_hw[i] << 32
+            self.numpart_total = [nptot[i] + (nptot_hw[i] << 32)
                                   for i in range(6)]
             if (np.array(self.numpart_total) < 0).any():
-                print('EagleSnapshot WARNING: negative total counts (overflow?).',
-                      self.numpart_total)
+                print(
+                    'EagleSnapshot WARNING: '
+                    'negative total counts (overflow?).',
+                    self.numpart_total
+                )
             if self.verbose:
                 print("  - Read in file header")
             # initialize hashmap all false
