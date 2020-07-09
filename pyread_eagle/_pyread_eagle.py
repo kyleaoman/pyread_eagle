@@ -86,6 +86,8 @@ class EagleSnapshot(object):
         if self.verbose:
             print("__init__() called")
         self.sampling_rate = 1.0
+        self.split_rank = -1
+        self.split_size = -1
         with h5py.File(self.fname, 'r') as f:
             if self.verbose:
                 print("  - Opened file: {:s}".format(self.fname))
@@ -98,8 +100,14 @@ class EagleSnapshot(object):
             self.hashbits = f['/HashTable'].attrs['HashBits']
             self.ncell = 1 << self.hashbits
             self.nhash = 1 << 3 * self.hashbits
-            self.numpart_total = [nptot[i] + nptot_hw[i] << 32
+            self.numpart_total = [nptot[i] + (nptot_hw[i] << 32)
                                   for i in range(6)]
+            if (np.array(self.numpart_total) < 0).any():
+                print(
+                    'EagleSnapshot WARNING: '
+                    'negative total counts (overflow?).',
+                    self.numpart_total
+                )
             if self.verbose:
                 print("  - Read in file header")
             # initialize hashmap all false
@@ -113,22 +121,22 @@ class EagleSnapshot(object):
                     print("  - Base name is {:s}".format(self.basename))
             if self.verbose:
                 for itype in range(6):
-                    if self.numpart_total[itype] > 0:
+                    if self.numpart_total[itype] != 0:
                         print("  - Have particles of type {:d}".format(itype))
             # These three datasets repeated in each file
             self.first_key_in_file = [
                 f['/HashTable/PartType{:d}/FirstKeyInFile'.format(itype)][...]
-                if self.numpart_total[itype] > 0 else None
+                if self.numpart_total[itype] != 0 else None
                 for itype in range(6)
             ]
             self.last_key_in_file = [
                 f['/HashTable/PartType{:d}/LastKeyInFile'.format(itype)][...]
-                if self.numpart_total[itype] > 0 else None
+                if self.numpart_total[itype] != 0 else None
                 for itype in range(6)
             ]
             self.num_keys_in_file = [
                 f['/HashTable/PartType{:d}/NumKeysInFile'.format(itype)][...]
-                if self.numpart_total[itype] > 0 else None
+                if self.numpart_total[itype] != 0 else None
                 for itype in range(6)
             ]
         self.num_part_in_file = [[None
@@ -152,9 +160,6 @@ class EagleSnapshot(object):
         # don't force read here, read on demand instead
 
         self._collect_dataset_names()
-
-        self.split_rank = -1
-        self.split_size = -1
 
         return
 
@@ -293,7 +298,8 @@ class EagleSnapshot(object):
                 )
             else:
                 counts.append(np.sum(lengths))
-            print('  ', counts[-1])
+            if self.verbose:
+                print('  ', counts[-1])
             if not _count:
                 starts = self.first_in_cell[itype][ifile][cell_mask]
                 ends = starts + lengths
@@ -431,7 +437,7 @@ class EagleSnapshot(object):
         if self.verbose:
             print('  - Reading hash table for file '
                   '{:d} particle type {:d}'.format(ifile, itype))
-        if (self.numpart_total[itype] > 0) and \
+        if (self.numpart_total[itype] != 0) and \
            (self.num_keys_in_file[itype][ifile] > 0):
             fname = '{:s}.{:d}.hdf5'.format(self.basename, ifile)
             with h5py.File(fname, 'r') as f:
@@ -481,7 +487,7 @@ class EagleSnapshot(object):
             if self.numpart_total[itype] == 0:
                 continue
             ifile = 0
-            while self.num_keys_in_file[itype][ifile] == 0:
+            while self.num_part_in_file[itype][ifile] == 0:
                 ifile += 1
             filename = '{:s}.{:d}.hdf5'.format(self.basename, ifile)
             # open this file and record dataset names

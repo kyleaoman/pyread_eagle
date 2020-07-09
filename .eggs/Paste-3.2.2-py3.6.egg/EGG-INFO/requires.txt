@@ -1,0 +1,13 @@
+six>=1.4.0
+
+[flup]
+flup
+
+[hotshot]
+
+[openid]
+python-openid
+
+[paste]
+
+[subprocess]
