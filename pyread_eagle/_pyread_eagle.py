@@ -397,7 +397,12 @@ class EagleSnapshot(object):
                     sub = sub[:int(np.floor(retval.shape[0]
                                             * self.sampling_rate))]
                     all_retval.append(retval[sub])
-        return np.concatenate(all_retval)
+                    
+        if len(all_retval) == 0:
+            raise ValueError('No particles found')
+            return
+        else:
+            return np.concatenate(all_retval)
 
     @check_open
     def datasets(self, itype):
