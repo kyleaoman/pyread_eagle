@@ -267,7 +267,7 @@ class EagleSnapshot(object):
     def get_particle_locations(self, itype, _count=False):
         """Return the locations of particles in the selected region"""
         # revise this function to be similar to read_extra_dataset to speed up
-        file_offsets = []
+        file_offsets = list()
         if itype < 0 or itype > 5:
             raise ValueError("Particle type index is out of range")
         if self.verbose:
@@ -276,8 +276,8 @@ class EagleSnapshot(object):
             if _count:
                 return 0
             else:
-                return np.array([]), np.array([])
-        counts = []
+                return np.empty((0, )), np.empty((0, ))
+        counts = list()
         for ifile in range(self.numfiles):
             if self.num_keys_in_file[itype][ifile] == 0:
                 counts.append(0)
@@ -336,7 +336,7 @@ class EagleSnapshot(object):
         if self.numpart_total[itype] == 0:
             return
         name = "PartType{:d}/{:s}".format(itype, name)
-        all_retval = []
+        all_retval = list()
         for ifile in range(self.numfiles):
             if self.num_keys_in_file[itype][ifile] == 0:
                 continue
@@ -349,7 +349,9 @@ class EagleSnapshot(object):
                     d = f[name]
                 except KeyError:
                     raise KeyError('Unable to open dataset: {:s}'.format(name))
-                if d.ndim not in (1, 2):
+                ndim = d.ndim
+                ncol = 1 if ndim == 1 else d.shape[1]
+                if ndim not in (1, 2):
                     raise RuntimeError('Can only read 1D or 2D datasets!')
                 cell_mask = self.hashmap[
                     self.first_key_in_file[itype][ifile]:
@@ -366,9 +368,9 @@ class EagleSnapshot(object):
                 if cell_mask[-1]:
                     uppers = np.r_[uppers, [[len(cell_mask)]]]
                 cell_intervals = np.hstack((lowers, uppers))
-                counts = []
-                starts = []
-                retval = []
+                counts = list()
+                starts = list()
+                retval = list()
                 for interval in cell_intervals:
                     counts.append(int(np.sum(
                             self.part_per_cell[itype][ifile][
@@ -395,7 +397,12 @@ class EagleSnapshot(object):
                     sub = sub[:int(np.floor(retval.shape[0]
                                             * self.sampling_rate))]
                     all_retval.append(retval[sub])
-        return np.concatenate(all_retval)
+        if len(all_retval):  # check that data not empty
+            return np.concatenate(all_retval)
+        elif ndim == 2:  # guaranteed to be 1 or 2 by check above
+            return np.empty((0, ncol))  # empty is ok with axis length 0
+        else:  # ndim == 1
+            return np.empty((0, ))
 
     @check_open
     def datasets(self, itype):
