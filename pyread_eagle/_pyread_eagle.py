@@ -94,7 +94,9 @@ class EagleSnapshot(object):
             self.boxsize = f['/Header'].attrs['BoxSize']
             self.numfiles = f['/Header'].attrs['NumFilesPerSnapshot']
             nptot = f['/Header'].attrs['NumPart_Total']
-            nptot_hw = f['/Header'].attrs['NumPart_Total_HighWord']
+            nptot_hw = (
+                f['/Header'].attrs['NumPart_Total_HighWord']
+            ).astype('int64')
             self.hashbits = f['/HashTable'].attrs['HashBits']
             self.ncell = 1 << self.hashbits
             self.nhash = 1 << 3 * self.hashbits
