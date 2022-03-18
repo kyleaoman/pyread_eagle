@@ -48,28 +48,15 @@ _roty_table = np.array([0, 1, 1, 2, 2, 3, 3, 0])
 
 _sense_table = np.array([-1, -1, -1, +1, +1, -1, -1, -1])
 
-
 def _get_dataset_list(grp, prefix=""):
-    all_objs = list()
-    if prefix:
-        grp[prefix].visit(all_objs.append)
-    else:
-        grp.visit(all_objs.append)
-    all_dsets = ['/' + obj
-                 for obj in all_objs
-                 if isinstance(grp[obj], h5py.Dataset)]
-    return all_dsets
-
-
-def _get_dataset_list_new(grp, prefix=""):
     all_dsets = []
     if prefix:
-        all_dsets = _get_dataset_list_new(grp[prefix])
+        all_dsets = _get_dataset_list(grp[prefix])
         all_dsets = ['/' + prefix + dset_name for dset_name in all_dsets]
     else:
         for key in grp.keys():
             if isinstance(grp[key],h5py._hl.group.Group):
-                all_dsets.extend(_get_dataset_list_new(grp, key)) 
+                all_dsets.extend(_get_dataset_list(grp, key)) 
             else:
                 all_dsets.append('/' + key)
     return all_dsets
