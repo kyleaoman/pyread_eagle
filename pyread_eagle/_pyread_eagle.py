@@ -61,6 +61,19 @@ def _get_dataset_list(grp, prefix=""):
     return all_dsets
 
 
+def _get_dataset_list_new(grp, prefix=""):
+    all_dsets = []
+    if prefix:
+        all_dsets = _get_dataset_list_new(grp[prefix])
+        all_dsets = ['/' + prefix + dset_name for dset_name in all_dsets]
+    else:
+        for key in grp.keys():
+            if isinstance(grp[key],h5py._hl.group.Group):
+                all_dsets.extend(_get_dataset_list_new(grp, key)) 
+            else:
+                all_dsets.append('/' + key)
+    return all_dsets
+
 class EagleSnapshotClosedException(Exception):
     pass
 
