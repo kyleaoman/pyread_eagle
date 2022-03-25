@@ -48,18 +48,20 @@ _roty_table = np.array([0, 1, 1, 2, 2, 3, 3, 0])
 
 _sense_table = np.array([-1, -1, -1, +1, +1, -1, -1, -1])
 
-def _get_dataset_list(grp, prefix=""):
-    all_dsets = []
+
+def _get_dataset_list(grp, prefix=''):
+    all_dsets = list()
     if prefix:
-        all_dsets = _get_dataset_list(grp[prefix])
-        all_dsets = ['/' + prefix + dset_name for dset_name in all_dsets]
+        all_dsets = ['/{:s}{:s}'.format(prefix, dset_name)
+                     for dset_name in _get_dataset_list(grp[prefix])]
     else:
         for key in grp.keys():
-            if isinstance(grp[key],h5py._hl.group.Group):
-                all_dsets.extend(_get_dataset_list(grp, key)) 
+            if isinstance(grp[key], h5py._hl.group.Group):
+                all_dsets.extend(_get_dataset_list(grp, prefix=key))
             else:
-                all_dsets.append('/' + key)
+                all_dsets.append('/{:s}'.format(key))
     return all_dsets
+
 
 class EagleSnapshotClosedException(Exception):
     pass
