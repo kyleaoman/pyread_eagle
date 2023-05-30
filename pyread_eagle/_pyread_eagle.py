@@ -275,13 +275,13 @@ class EagleSnapshot(object):
             raise ValueError(
                 "select_rotated_region parameters must all have " "shape (3, )"
             )
-        if any(
+        if not all(
             [
-                np.dot(xvec, yvec) != 0.0,
-                np.dot(xvec, zvec) != 0,
-                np.linalg.norm(xvec) != 1.0,
-                np.linalg.norm(yvec) != 1.0,
-                np.linalg.norm(zvec) != 1.0,
+                np.isclose(np.dot(xvec, yvec), 0.0),
+                np.isclose(np.dot(xvec, zvec), 0.0),
+                np.isclose(np.linalg.norm(xvec), 1.0),
+                np.isclose(np.linalg.norm(yvec), 1.0),
+                np.isclose(np.linalg.norm(zvec), 1.0),
             ]
         ):
             raise ValueError(
